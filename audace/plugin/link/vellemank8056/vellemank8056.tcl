@@ -91,6 +91,7 @@ proc ::vellemank8056::initPlugin { } {
    set private(genericName) "K8056"
    set private(newCardAddress) $::conf(vellemank8056,cardAddress)
 
+   #::vellemank8056::closeAudelaHandleOnSerial "$private(genericName)-$::conf(vellemank8056,serialPort)"
 }
 
 #------------------------------------------------------------
@@ -164,7 +165,6 @@ proc ::vellemank8056::createPluginInstance { linkLabel deviceId usage comment ar
       fconfigure $private(portHandle) -mode "2400,n,8,1" -buffering none -blocking 0 -translation binary
       #--- j'ajoute l'utilisation du port serie ( avec l'option -noopen car le port est déjà ouvert par la commande TCl precedente
       ::serialport::createPluginInstance $::conf(vellemank8056,serialPort) $linkLabel "command" "" "-noopen"
-
       #--- je cree le lien ::link$linkno  (simule la presence de la librairie dynamique)
       set linkNo [::vellemank8056::simulLibraryCreateLink vellemank8056 $linkLabel ]
       #--- je rafraichis la liste
@@ -174,7 +174,7 @@ proc ::vellemank8056::createPluginInstance { linkLabel deviceId usage comment ar
 
    #--- je traite l'erreur
    if { $catchResult != 0 } {
-      ::console::affiche_erreur "::vellemank8056::createPluginInstance \n $::errorInfo\n"
+      ::console::affiche_erreur "::vellemank8056::createPluginInstance failed with: \n $::errorInfo\n"
       if { $linkNo != 0 } {
          ::vellemank8056::deletePluginInstance $linkLabel $deviceId $usage
          set linkNo 0
@@ -687,3 +687,73 @@ proc ::vellemank8056::simulLibraryUseLink { libraryName linkNo  args } {
    }
 }
 
+#------------------------------------------------------------
+#  closeAudelaHandleOnSerial
+#     Sometimes audela.exe holds a handle on COM1, preventing this
+#      plugin from opening it (permission denied).
+#     This routine attempts to close this handle (if existent)
+#
+#  return
+#   1 - handle was not closed (it may not have existed at all)
+#   0 - handle was closed
+#------------------------------------------------------------
+proc ::vellemank8056::closeAudelaHandleOnSerial {} {
+    variable private
+
+    set procname [dict get [info frame 0] proc]
+
+    #
+    # The "handle" utility (part of the Sysinternals suite) can:
+    #
+    # a) Search for a handle in a given command.
+    # b) Close a handle (by handle-id) in a process (by process-id)
+    #
+
+    set k8056Port "$private(genericName)-$::conf(vellemank8056,serialPort)"
+    set serial "Serial"
+    append serial [expr [lindex [split ${k8056Port} {}] end] - 1]
+
+    #
+    # Search for a handle to \Device\${serial} in the process audela.exe
+    #
+    set utility "handle -a -p audela.exe ${serial}"
+    if { [catch { set pipe [open "|${utility}" r] } err] } {
+        console::affiche_erreur "${procname}: could not run \"${utility}\" (${err})"
+        return
+    }
+
+    set handle ""
+    while {[gets $pipe line] >= 0} {
+        set fields [regexp -all -inline {\S+} $line]
+        if { [string match *${serial} [lindex $fields end]] } {
+            set pid [lindex $fields 2]
+            set handle [string range [lindex $fields end-1] 0 end-1]
+            break
+        }
+    }
+    close $pipe
+
+    if {[string equal "${handle}" ""]} {
+       console::disp "${procname}: No handle found on ${serial} (${k8056Port})\n"
+       return
+    }
+
+    #
+    # The handle to ${serial} was found, try to close it
+    #
+    set utility "handle -c ${handle} =y -p ${pid}"
+    if { [catch { set pipe [open "|${utility}" r] } err] } {
+        console::affiche_erreur "${procname}: could not run \"${utility}\" (${err})"
+        return
+    }
+
+    while {[gets $pipe line] >= 0} {
+        if {[string equal "${line}" "Handle closed."]} {
+            console::disp "${procname}: audela handle found and closed"
+            close ${pipe}
+            return
+        }
+    }
+    close ${pipe}
+    console::affiche_erreur "${procname}: failed to close handle on ${serial} (${k8056Port})."
+}

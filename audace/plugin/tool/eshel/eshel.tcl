@@ -949,6 +949,10 @@ proc ::eshel::createPluginInstance { {tkbase "" } { visuNo 1 } } {
          -command "::eshel::setProcessAuto"
       pack $frm.acq.auto -in [$frm.acq getframe] -fill x -padx 0 -pady 0
 
+      button $frm.acq.fetch -text "Fetch remote info" \
+        -borderwidth 3 -pady 6 -command "::eshel::onFetchRemoteInfo $visuNo"
+      pack $frm.acq.fetch -in [$frm.acq getframe] -fill x -padx 0 -pady 0
+        
       #--- bouton go
       button $frm.acq.go -text "$caption(eshel,acq,go)" -height 2 \
         -borderwidth 3 -pady 6 -command "::eshel::onStartAcquisition $visuNo"
@@ -984,6 +988,12 @@ proc ::eshel::createPluginInstance { {tkbase "" } { visuNo 1 } } {
       #button $frm.config.wizard -text "Assistant" -height 1 \
       #    -borderwidth 1 -padx 2 -pady 2 -command "::eshel::startWizard $visuNo"
       #pack $frm.config.wizard -in [$frm.config getframe] -fill x -padx 2 -pady 2 -expand true
+   
+      #--- Release serial port
+      button $frm.config.releaseSerial -text "Release serial port" -height 1 \
+        -borderwidth 1 -padx 2 -pady 2 -command "::eshel::onReleaseSerial ${visuNo}"
+      pack $frm.config.releaseSerial -in [$frm.config getframe] -fill x -padx 2 -pady 2 -expand true
+   
       #--- Parametres instrument
       button $frm.config.instrument -text "$caption(eshel,instrument)" -height 1 \
         -borderwidth 1 -padx 2 -pady 2 -command "::eshel::instrumentgui::run [winfo toplevel $private($visuNo,frm)] $visuNo"
@@ -1208,6 +1218,29 @@ proc ::eshel::adaptPanel { visuNo args } {
 
 }
 
+proc ::eshel::setObjectName { visuNo objName } {
+    variable private
+
+    set procname [dict get [info frame 0] proc]
+
+    set $private($visuNo,objname) ${objName}
+    set current [$private($visuNo,frm).acq.object.combo.e get]
+    $private($visuNo,frm).acq.object.combo.e delete 0 [string length ${current}]
+    $private($visuNo,frm).acq.object.combo.e insert 0 ${objName}
+    ::eshel::onModifyObject ${visuNo}
+    console::disp "${procname}: set object name to ${objName}\n"
+}
+
+proc ::eshel::setExpTime { visuNo exptime } {
+    variable private
+
+    set procname [dict get [info frame 0] proc]
+
+    set ::conf(eshel,exptime) ${exptime}
+    console::disp "${procname}: set exposure time to ${exptime}\n"
+}
+
+
 #------------------------------------------------------------
 #  onModifyObject
 #    ajoute le nom de l'objet selectionne en tete dans la liste de la combobox
@@ -1233,6 +1266,19 @@ proc ::eshel::onModifyObject { visuNo } {
    ###console::disp "objname= $private($visuNo,objname)  \n"
    $private($visuNo,frm).acq.object.combo.e validate
 
+}
+
+
+proc ::eshel::onReleaseSerial { visuNo args } {
+    set procname [dict get [info frame 0] proc]
+
+    ::vellemank8056::closeAudelaHandleOnSerial
+}
+
+proc ::eshel::onFetchRemoteInfo { visuNo args } {
+    set procname [dict get [info frame 0] proc]
+
+    ::eshel::acquisition::fetchRemoteCommanderInfo ${visuNo}
 }
 
 #------------------------------------------------------------
@@ -1876,4 +1922,3 @@ proc ::eshel::validateString { win event X oldX class minLength maxLength errorV
    }
 
 }
-

@@ -18,6 +18,72 @@ proc ::eshel::acquisition::validateFitsData { value valueLabel } {
 
 }
 
+proc ::eshel::acquisition::fetchRemoteCommanderInfo { visuNo } {
+    set procname [dict get [info frame 0] proc]
+    variable private
+
+    global audace
+
+    if { [info hostname] == "eshel-pc" } {
+      set rcServer "mizpe-cdr"
+    } else {
+      set rcServer "127.0.0.1"
+    }
+
+    set err [catch {source "$audace(rep_install)/gui/audace/socket_tools.tcl"}]
+    socket_client_open rcClient $rcServer 7070
+    socket_client_put  rcClient "get-fits-keywords"
+    after 500
+    set rcLine [ socket_client_get rcClient ]
+    socket_client_close rcClient
+    logInfo "${procname}: ==\"$rcLine\"==\n"
+
+    #
+    # The remote commander sends a line containing a series of key@value entries
+    #  separated by semicolons.
+    #
+    set rcEntries [ split $rcLine ";" ]
+    foreach rcEntry $rcEntries {
+      lassign [ split $rcEntry "@" ] rcKey rcValue
+      if { [string length $rcKey] == 0 || [string length $rcValue] == 0 } {
+          # empty entries are not valid
+          continue
+      }
+      set key [ string toupper $rcKey ]
+      switch $key {
+          "OBJNAME" {
+                      ::eshel::setObjectName ${visuNo} ${rcValue}
+                      continue
+                    }
+          "EXPTIME" {
+                      ::eshel::setExpTime ${visuNo} ${rcValue}
+                      continue
+                    }
+          "RA"      {
+                      scan $rcValue %d:%d:%d.%d hh mm ss sRa
+                      set ang [list ${hh} ${mm} ${ss}]
+                      if {[info exists sRa] && [string length "${sRa}"] > 0} {
+                          lappend ${ang} ${sRa}
+                      }
+                      set val [mc_angle2deg ${ang}]
+                    }
+          "DEC"     {
+                      scan $rcValue %d:%d:%d.%d dd mm ss sDec
+                      set ang [list ${dd} ${mm} ${ss}]
+                      if {[info exists sDec] && [string length "${sDec}"] > 0} {
+                          lappend ${ang} ${sDec}
+                      }
+                      set val [mc_angle2deg ${ang}]
+                    }
+          "AIRMASS" { set val [scan $rcValue %f] }
+          "EQUINOX" { set val [scan $rcValue %f] }
+          default   { set val $rcValue }
+      }
+      console::disp "${procname}: adding FITS keyword =\"$key\", value = \"$val\"\n"
+      ::keyword::setKeywordValue $visuNo $::conf(eshel,keywordConfigName) $key $val
+    }
+}
+
 ## startSequence ------------------------------------------------------------
 # lance une sequence d'acquisition
 # <br>exemple :
@@ -370,6 +436,7 @@ proc ::eshel::acquisition::startSequence { visuNo actionList { sequenceName "" }
                   ::keyword::setKeywordValue $visuNo $::conf(eshel,keywordConfigName) "CONFNAME" $::conf(eshel,instrument,config,$configId,configName)
                   ::keyword::setKeywordValue $visuNo $::conf(eshel,keywordConfigName) "OBSERVER" $::conf(posobs,nom_observateur)
                   ::keyword::setKeywordValue $visuNo $::conf(eshel,keywordConfigName) "SWCREATE" "eShel-[package present eshel]"
+
                   #--- j'ajoute des mots clefs dans l'en-tete FITS de l'image
                   foreach keyword [ ::keyword::getKeywords $visuNo $::conf(eshel,keywordConfigName) ] {
                      #--- j'ajoute tous les mots cles qui ne sont pas vide
